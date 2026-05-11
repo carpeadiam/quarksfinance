@@ -1,0 +1,10 @@
+version: '3.9'
+
+services:
+  backend:
+    build: .
+    container_name: quarks-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app

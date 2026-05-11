@@ -1,0 +1,12 @@
+numpy
+pandas
+yfinance
+matplotlib
+statsmodels
+requests
+Flask
+Flask-Cors
+PyJWT
+pytz
+jugaad-data
+gunicorn
