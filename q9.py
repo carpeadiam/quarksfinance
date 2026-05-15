@@ -658,510 +658,466 @@ class Simulation:
             print(f"No price data for {symbol} on {date_str}")
             self.logs.append(f"No price data for {symbol} on {date_str}")
 
-    def momentum_strategy(self, symbol, current_date, df=None, lookback_days=14, threshold=0.05, **kwargs):
-        """
-        Revised momentum strategy with exact price synchronization
-        """
-        try:
-            if df is None or len(df) < lookback_days + 1:
-                return
+def momentum_strategy(self, symbol, current_date, df=None, lookback_days=14, threshold=0.05, **kwargs):
+    """Fixed momentum strategy"""
+    try:
+        if df is None or len(df) < lookback_days + 1:
+            return
 
-            # Get prices - using the actual execution price for current_date
-            current_price = float(df.iloc[-1]['Close'])
-            past_price = float(df.iloc[-lookback_days - 1]['Close'])
+        # Get prices as numpy arrays to avoid Series issues
+        close_prices = df['Close'].values.flatten()
+        
+        current_price = float(close_prices[-1])
+        past_price = float(close_prices[-lookback_days - 1])
 
-            if past_price <= 0:
-                return
+        if past_price <= 0:
+            return
 
-            price_change = (current_price - past_price) / past_price
+        price_change = (current_price - past_price) / past_price
 
-            if price_change > threshold:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol,
-                    quantity,
-                    "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price  # Explicitly set execution price
-                )
-
-            elif price_change < -threshold:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol,
-                        self.portfolio['holdings'][symbol]['quantity'],
-                        "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price  # Explicitly set execution price
-                    )
-
-        except Exception as e:
-            print(f"Momentum strategy error: {str(e)}")
-
-    def bollinger_bands_strategy(self, symbol, current_date, df=None, window=20, num_std=2, **kwargs):
-        """
-        Optimized Bollinger Bands strategy using pre-loaded data
-        """
-        try:
-            if df is None:
-                raise ValueError("No DataFrame provided")
-
-            if len(df) < window + 1:
-                return
-
-            # Calculate indicators
-            df['MA'] = df['Close'].rolling(window=window).mean()
-            df['STD'] = df['Close'].rolling(window=window).std()
-            df['Upper'] = df['MA'] + (df['STD'] * num_std)
-            df['Lower'] = df['MA'] - (df['STD'] * num_std)
-
-            # Get latest values
-            current_price = float(df['Close'].iloc[-1])
-            upper_band = float(df['Upper'].iloc[-1])
-            lower_band = float(df['Lower'].iloc[-1])
-
-            if current_price < lower_band:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(symbol, quantity, "BUY",
-                                                f"{current_date.strftime('%Y-%m-%d')} 09:15:00")
-
-            elif current_price > upper_band:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol,
-                        self.portfolio['holdings'][symbol]['quantity'],
-                        "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00"
-                    )
-
-        except Exception as e:
-            print(f"Bollinger Bands error: {str(e)}")
-
-
-    def moving_average_crossover(self, symbol, current_date, df=None, short_window=50, long_window=200, **kwargs):
-        """
-        Restored working version with critical fixes
-        """
-        try:
-            # 1. Validate input data
-            if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-                return
-
-            # 2. Get clean close prices (the working version)
-            close_prices = df['Close'].astype(float).values
-
-            # 3. Manual moving average calculation (working version)
-            def calculate_ma(prices, window):
-                if len(prices) < window:
-                    return None
-                cumsum = np.cumsum(np.insert(prices, 0, 0))
-                return (cumsum[window:] - cumsum[:-window]) / window
-
-            short_ma = calculate_ma(close_prices, int(short_window))
-            long_ma = calculate_ma(close_prices, int(long_window))
-
-            # 4. Validate we have enough data
-            if short_ma is None or long_ma is None or len(short_ma) < 2:
-                return
-
-            # 5. Get current values with PROPER scalar conversion
-            current_price = float(df['Close'].iloc[-1])  # Fixed deprecation warning
-            current_short = float(short_ma[-1])
-            current_long = float(long_ma[-1])
-            prev_short = float(short_ma[-2])
-            prev_long = float(long_ma[-2])
-
-            # 6. Trading logic (keep the working version)
-            if prev_short <= prev_long and current_short > current_long:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol,
-                    quantity,
-                    "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-            elif prev_short >= prev_long and current_short < current_long:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol,
-                        self.portfolio['holdings'][symbol]['quantity'],
-                        "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price
-                    )
-
-        except Exception as e:
-            print(f"MA Crossover operation completed: {str(e)}")
-
-    ##################NEW ONES#######################
-
-    def rsi_strategy(self, symbol, current_date, df=None, rsi_window=14, overbought=70, oversold=30, **kwargs):
-        """Fixed RSI Strategy with proper array handling"""
-        try:
-            if df is None or len(df) < rsi_window + 1:
-                return
-
-            # Convert to proper 1D arrays
-            closes = df['Close'].values.flatten()  # Ensure 1D array
-            delta = np.diff(closes)
-            gain = np.where(delta > 0, delta, 0)
-            loss = np.where(delta < 0, -delta, 0)
-
-            # Calculate RSI properly
-            avg_gain = pd.Series(gain).rolling(rsi_window).mean().values
-            avg_loss = pd.Series(loss).rolling(rsi_window).mean().values
-
-            with np.errstate(divide='ignore', invalid='ignore'):
-                rs = np.divide(avg_gain, avg_loss)
-                rs[avg_loss == 0] = 1  # Handle division by zero
-                rsi = 100 - (100 / (1 + rs))
-
-            current_rsi = float(rsi[-1])
-            prev_rsi = float(rsi[-2])
-            current_price = float(closes[-1])
-
-            if prev_rsi > oversold and current_rsi <= oversold:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol, quantity, "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-            elif prev_rsi < overbought and current_rsi >= overbought:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol, self.portfolio['holdings'][symbol]['quantity'], "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price
-                    )
-
-        except Exception as e:
-            print(f"RSI strategy error: {str(e)}")
-
-    def macd_strategy(self, symbol, current_date, df=None, fast=12, slow=26, signal=9, **kwargs):
-        """Fixed MACD Strategy with proper array handling"""
-        try:
-            if df is None or len(df) < slow + signal:
-                return
-
-            # Convert to proper 1D arrays
-            closes = df['Close'].values.flatten()
-
-            # Calculate MACD components
-            exp1 = pd.Series(closes).ewm(span=fast, adjust=False).mean().values
-            exp2 = pd.Series(closes).ewm(span=slow, adjust=False).mean().values
-            macd = exp1 - exp2
-            signal_line = pd.Series(macd).ewm(span=signal, adjust=False).mean().values
-
-            current_macd = float(macd[-1])
-            current_signal = float(signal_line[-1])
-            prev_macd = float(macd[-2])
-            prev_signal = float(signal_line[-2])
-            current_price = float(closes[-1])
-
-            if prev_macd < prev_signal and current_macd > current_signal:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol, quantity, "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-            elif prev_macd > prev_signal and current_macd < current_signal:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol, self.portfolio['holdings'][symbol]['quantity'], "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price
-                    )
-
-        except Exception as e:
-            print(f"MACD strategy error: {str(e)}")
-
-    def mean_reversion_strategy(self, symbol, current_date, df=None, window=20, z_threshold=2, **kwargs):
-        """Fixed Mean Reversion Strategy"""
-        try:
-            if df is None or len(df) < window:
-                return
-
-            closes = df['Close'].values.flatten()
-            rolling_mean = pd.Series(closes).rolling(window=window).mean().values[-1]
-            rolling_std = pd.Series(closes).rolling(window=window).std().values[-1]
-            current_price = float(closes[-1])
-
-            z_score = (current_price - rolling_mean) / rolling_std if rolling_std != 0 else 0
-
-            if z_score < -z_threshold:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol, quantity, "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-            elif z_score > z_threshold:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol, self.portfolio['holdings'][symbol]['quantity'], "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price
-                    )
-
-        except Exception as e:
-            print(f"Mean reversion strategy error: {str(e)}")
-
-    def breakout_strategy(self, symbol, current_date, df=None, window=20, multiplier=1.01, **kwargs):
-        """Completely fixed Breakout strategy"""
-        try:
-            if df is None or len(df) < window + 1:
-                return
-
-            # Convert to proper numpy arrays and ensure 1D
-            highs = np.array(df['High'], dtype=np.float64).flatten()
-            lows = np.array(df['Low'], dtype=np.float64).flatten()
-            closes = np.array(df['Close'], dtype=np.float64).flatten()
-
-            # Calculate recent high/low (excluding current day)
-            recent_high = np.max(highs[-window - 1:-1])  # Look back window days, excluding current
-            recent_low = np.min(lows[-window - 1:-1])  # Look back window days, excluding current
-
-            # Calculate breakout levels with tighter multiplier
-            resistance = recent_high * multiplier
-            support = recent_low / multiplier
-
-            current_price = float(closes[-1])
-            prev_price = float(closes[-2])
-
-            # Trading logic with confirmation
-            if prev_price <= resistance and current_price > resistance:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol, quantity, "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-            elif prev_price >= support and current_price < support:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol, self.portfolio['holdings'][symbol]['quantity'], "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price
-                    )
-
-        except Exception as e:
-            print(f"Breakout strategy error on {current_date}: {str(e)}")
-
-
-    def volume_spike_strategy(self, symbol, current_date, df=None, window=20, multiplier=2.5, **kwargs):
-        """Fixed Volume Spike Strategy"""
-        try:
-            if df is None or len(df) < window:
-                return
-
-            volumes = df['Volume'].values.flatten()
-            closes = df['Close'].values.flatten()
-
-            avg_volume = float(pd.Series(volumes).rolling(window=window).mean().values[-1])
-            current_volume = float(volumes[-1])
-            volume_ratio = current_volume / avg_volume if avg_volume != 0 else 0
-
-            current_price = float(closes[-1])
-            price_change = (current_price - float(closes[-2])) / float(closes[-2]) if closes[-2] != 0 else 0
-
-            if volume_ratio > multiplier and price_change > 0:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol, quantity, "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-
-        except Exception as e:
-            print(f"Volume spike strategy error: {str(e)}")
-
-    def keltner_channels_strategy(self, symbol, current_date, df=None, window=20, atr_multiplier=2, **kwargs):
-        """Fixed Keltner Channels Strategy"""
-        try:
-            if df is None or len(df) < window:
-                return
-
-            highs = df['High'].values.flatten()
-            lows = df['Low'].values.flatten()
-            closes = df['Close'].values.flatten()
-
-            # Calculate ATR properly
-            tr = np.maximum(
-                highs[1:] - lows[1:],
-                np.abs(highs[1:] - closes[:-1]),
-                np.abs(lows[1:] - closes[:-1])
+        if price_change > threshold:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
             )
-            atr = float(pd.Series(tr).rolling(window=window).mean().values[-1])
-
-            middle = float(pd.Series(closes).ewm(span=window).mean().values[-1])
-            upper = middle + atr_multiplier * atr
-            lower = middle - atr_multiplier * atr
-
-            current_price = float(closes[-1])
-
-            if current_price < lower:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol, quantity, "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-            elif current_price > upper:
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol, self.portfolio['holdings'][symbol]['quantity'], "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price
-                    )
-
-        except Exception as e:
-            print(f"Keltner Channels strategy error: {str(e)}")
-
-    def stochastic_oscillator_strategy(self, symbol, current_date, df=None, k_window=14, d_window=3,
-                                       overbought=80, oversold=20, **kwargs):
-        """Completely fixed Stochastic Oscillator strategy"""
-        try:
-            if df is None or len(df) < k_window + d_window + 1:
-                return
-
-            # Convert to proper numpy arrays and ensure 1D
-            highs = np.array(df['High'], dtype=np.float64).flatten()
-            lows = np.array(df['Low'], dtype=np.float64).flatten()
-            closes = np.array(df['Close'], dtype=np.float64).flatten()
-
-            # Calculate %K properly
-            lowest_lows = pd.Series(lows).rolling(window=k_window).min().values
-            highest_highs = pd.Series(highs).rolling(window=k_window).max().values
-
-            # Current values with proper bounds checking
-            current_close = closes[-1]
-            current_low = lowest_lows[-1] if not np.isnan(lowest_lows[-1]) else lows[-k_window:].min()
-            current_high = highest_highs[-1] if not np.isnan(highest_highs[-1]) else highs[-k_window:].max()
-
-            # Calculate %K with proper division handling
-            k_current = 100 * ((current_close - current_low) /
-                               (current_high - current_low)) if (current_high - current_low) != 0 else 50
-
-            # Calculate %D as SMA of %K
-            k_values = []
-            for i in range(len(closes) - k_window + 1):
-                window_low = lows[i:i + k_window].min()
-                window_high = highs[i:i + k_window].max()
-                close = closes[i + k_window - 1]
-                k = 100 * ((close - window_low) / (window_high - window_low)) if (window_high - window_low) != 0 else 50
-                k_values.append(k)
-
-            d_current = pd.Series(k_values).rolling(window=d_window).mean().values[-1]
-
-            # Previous values
-            prev_close = closes[-2]
-            prev_low = lowest_lows[-2] if len(lowest_lows) > 1 and not np.isnan(lowest_lows[-2]) else lows[
-                                                                                                      -k_window - 1:-1].min()
-            prev_high = highest_highs[-2] if len(highest_highs) > 1 and not np.isnan(highest_highs[-2]) else highs[
-                                                                                                             -k_window - 1:-1].max()
-            k_prev = 100 * ((prev_close - prev_low) / (prev_high - prev_low)) if (prev_high - prev_low) != 0 else 50
-
-            # Current price
-            current_price = float(current_close)
-
-            # Trading conditions with buffer zones
-            buy_condition = (k_prev < oversold + 5 and k_current > oversold + 5)
-            sell_condition = (k_prev > overbought - 5 and k_current < overbought - 5)
-
-            if buy_condition:
-                quantity = max(1, int(10000 // current_price))
-                self.add_historical_transaction(
-                    symbol, quantity, "BUY",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-            elif sell_condition and symbol in self.portfolio['holdings']:
-                self.add_historical_transaction(
-                    symbol, self.portfolio['holdings'][symbol]['quantity'], "SELL",
-                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                    price=current_price
-                )
-
-        except Exception as e:
-            print(f"Stochastic strategy error on {current_date}: {str(e)}")
-
-    def parabolic_sar_strategy(self, symbol, current_date, df=None, acceleration=0.02, maximum=0.2, **kwargs):
-        """
-        Parabolic SAR (Stop and Reverse) strategy
-        """
-        try:
-            if df is None or len(df) < 2:
-                return
-
-            # Calculate Parabolic SAR
-            high = df['High'].values
-            low = df['Low'].values
-            close = df['Close'].values
-
-            sar = np.zeros(len(close))
-            ep = np.zeros(len(close))
-            af = acceleration
-
-            # Initial values
-            sar[0] = high[0] if close[0] < high[0] else low[0]
-            ep[0] = high[0] if close[0] > high[0] else low[0]
-            trend = 1 if close[0] > high[0] else -1
-
-            for i in range(1, len(close)):
-                sar[i] = sar[i - 1] + af * (ep[i - 1] - sar[i - 1])
-
-                if trend == 1:
-                    if low[i] < sar[i]:
-                        trend = -1
-                        sar[i] = max(high[i - 1], high[i])
-                        ep[i] = low[i]
-                        af = acceleration
-                    else:
-                        ep[i] = max(ep[i - 1], high[i])
-                        if high[i] > ep[i - 1]:
-                            af = min(af + acceleration, maximum)
-                else:
-                    if high[i] > sar[i]:
-                        trend = 1
-                        sar[i] = min(low[i - 1], low[i])
-                        ep[i] = high[i]
-                        af = acceleration
-                    else:
-                        ep[i] = min(ep[i - 1], low[i])
-                        if low[i] < ep[i - 1]:
-                            af = min(af + acceleration, maximum)
-
-            current_sar = sar[-1]
-            current_price = float(close[-1])
-            prev_sar = sar[-2]
-            prev_price = float(close[-2])
-
-            # Trading logic
-            if prev_price > prev_sar and current_price < current_sar:  # Downtrend reversal
-                if symbol in self.portfolio['holdings']:
-                    self.add_historical_transaction(
-                        symbol,
-                        self.portfolio['holdings'][symbol]['quantity'],
-                        "SELL",
-                        f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
-                        price=current_price
-                    )
-            elif prev_price < prev_sar and current_price > current_sar:  # Uptrend reversal
-                quantity = max(1, int(10000 // current_price))
+        elif price_change < -threshold:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
                 self.add_historical_transaction(
                     symbol,
-                    quantity,
-                    "BUY",
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
                     f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
                     price=current_price
                 )
+    except Exception as e:
+        print(f"Momentum strategy error: {str(e)}")
 
-        except Exception as e:
-            print(f"Parabolic SAR strategy error: {str(e)}")
+def bollinger_bands_strategy(self, symbol, current_date, df=None, window=20, num_std=2, **kwargs):
+    """Fixed Bollinger Bands strategy"""
+    try:
+        if df is None or len(df) < window + 1:
+            return
 
+        # Use numpy arrays
+        closes = df['Close'].values.flatten()
+        
+        # Calculate indicators using rolling windows on the array
+        ma = np.convolve(closes, np.ones(window)/window, mode='valid')
+        std = np.array([closes[i-window:i].std() for i in range(window, len(closes))])
+        
+        if len(ma) == 0 or len(std) == 0:
+            return
+            
+        upper_band = ma + (std * num_std)
+        lower_band = ma - (std * num_std)
+        
+        current_price = float(closes[-1])
+        current_upper = float(upper_band[-1])
+        current_lower = float(lower_band[-1])
+
+        if current_price < current_lower:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif current_price > current_upper:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"Bollinger Bands error: {str(e)}")
+
+def moving_average_crossover(self, symbol, current_date, df=None, short_window=50, long_window=200, **kwargs):
+    """Fixed MA Crossover strategy"""
+    try:
+        if df is None or len(df) < long_window + 1:
+            return
+
+        closes = df['Close'].values.flatten()
+        
+        def calculate_ma(prices, window):
+            if len(prices) < window:
+                return None
+            cumsum = np.cumsum(np.insert(prices, 0, 0))
+            return (cumsum[window:] - cumsum[:-window]) / window
+
+        short_ma = calculate_ma(closes, int(short_window))
+        long_ma = calculate_ma(closes, int(long_window))
+
+        if short_ma is None or long_ma is None or len(short_ma) < 2:
+            return
+
+        current_price = float(closes[-1])
+        current_short = float(short_ma[-1])
+        current_long = float(long_ma[-1])
+        prev_short = float(short_ma[-2])
+        prev_long = float(long_ma[-2])
+
+        if prev_short <= prev_long and current_short > current_long:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif prev_short >= prev_long and current_short < current_long:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"MA Crossover error: {str(e)}")
+
+def rsi_strategy(self, symbol, current_date, df=None, rsi_window=14, overbought=70, oversold=30, **kwargs):
+    """Fixed RSI Strategy"""
+    try:
+        if df is None or len(df) < rsi_window + 1:
+            return
+
+        closes = df['Close'].values.flatten()
+        delta = np.diff(closes)
+        gain = np.where(delta > 0, delta, 0)
+        loss = np.where(delta < 0, -delta, 0)
+
+        avg_gain = pd.Series(gain).rolling(rsi_window).mean().values
+        avg_loss = pd.Series(loss).rolling(rsi_window).mean().values
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rs = np.divide(avg_gain, avg_loss)
+            rs[avg_loss == 0] = 1
+            rsi = 100 - (100 / (1 + rs))
+
+        current_rsi = float(rsi[-1])
+        prev_rsi = float(rsi[-2])
+        current_price = float(closes[-1])
+
+        if prev_rsi > oversold and current_rsi <= oversold:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif prev_rsi < overbought and current_rsi >= overbought:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"RSI strategy error: {str(e)}")
+
+def macd_strategy(self, symbol, current_date, df=None, fast=12, slow=26, signal=9, **kwargs):
+    """Fixed MACD Strategy"""
+    try:
+        if df is None or len(df) < slow + signal:
+            return
+
+        closes = df['Close'].values.flatten()
+
+        exp1 = pd.Series(closes).ewm(span=fast, adjust=False).mean().values
+        exp2 = pd.Series(closes).ewm(span=slow, adjust=False).mean().values
+        macd = exp1 - exp2
+        signal_line = pd.Series(macd).ewm(span=signal, adjust=False).mean().values
+
+        current_macd = float(macd[-1])
+        current_signal = float(signal_line[-1])
+        prev_macd = float(macd[-2])
+        prev_signal = float(signal_line[-2])
+        current_price = float(closes[-1])
+
+        if prev_macd < prev_signal and current_macd > current_signal:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif prev_macd > prev_signal and current_macd < current_signal:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"MACD strategy error: {str(e)}")
+
+def mean_reversion_strategy(self, symbol, current_date, df=None, window=20, z_threshold=2, **kwargs):
+    """Fixed Mean Reversion Strategy"""
+    try:
+        if df is None or len(df) < window:
+            return
+
+        closes = df['Close'].values.flatten()
+        rolling_mean = pd.Series(closes).rolling(window=window).mean().values[-1]
+        rolling_std = pd.Series(closes).rolling(window=window).std().values[-1]
+        current_price = float(closes[-1])
+
+        z_score = (current_price - rolling_mean) / rolling_std if rolling_std != 0 else 0
+
+        if z_score < -z_threshold:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif z_score > z_threshold:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"Mean reversion strategy error: {str(e)}")
+
+def breakout_strategy(self, symbol, current_date, df=None, window=20, multiplier=1.01, **kwargs):
+    """Fixed Breakout strategy"""
+    try:
+        if df is None or len(df) < window + 1:
+            return
+
+        highs = df['High'].values.flatten()
+        lows = df['Low'].values.flatten()
+        closes = df['Close'].values.flatten()
+
+        recent_high = np.max(highs[-window - 1:-1])
+        recent_low = np.min(lows[-window - 1:-1])
+
+        resistance = recent_high * multiplier
+        support = recent_low / multiplier
+
+        current_price = float(closes[-1])
+        prev_price = float(closes[-2])
+
+        if prev_price <= resistance and current_price > resistance:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif prev_price >= support and current_price < support:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"Breakout strategy error: {str(e)}")
+
+def volume_spike_strategy(self, symbol, current_date, df=None, window=20, multiplier=2.5, **kwargs):
+    """Fixed Volume Spike Strategy"""
+    try:
+        if df is None or len(df) < window:
+            return
+
+        volumes = df['Volume'].values.flatten()
+        closes = df['Close'].values.flatten()
+
+        avg_volume = float(pd.Series(volumes).rolling(window=window).mean().values[-1])
+        current_volume = float(volumes[-1])
+        volume_ratio = current_volume / avg_volume if avg_volume != 0 else 0
+
+        current_price = float(closes[-1])
+        price_change = (current_price - float(closes[-2])) / float(closes[-2]) if closes[-2] != 0 else 0
+
+        if volume_ratio > multiplier and price_change > 0:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+    except Exception as e:
+        print(f"Volume spike strategy error: {str(e)}")
+
+def keltner_channels_strategy(self, symbol, current_date, df=None, window=20, atr_multiplier=2, **kwargs):
+    """Fixed Keltner Channels Strategy"""
+    try:
+        if df is None or len(df) < window:
+            return
+
+        highs = df['High'].values.flatten()
+        lows = df['Low'].values.flatten()
+        closes = df['Close'].values.flatten()
+
+        # Calculate ATR
+        tr = np.maximum(
+            highs[1:] - lows[1:],
+            np.abs(highs[1:] - closes[:-1]),
+            np.abs(lows[1:] - closes[:-1])
+        )
+        atr = float(pd.Series(tr).rolling(window=window).mean().values[-1])
+
+        middle = float(pd.Series(closes).ewm(span=window).mean().values[-1])
+        upper = middle + atr_multiplier * atr
+        lower = middle - atr_multiplier * atr
+
+        current_price = float(closes[-1])
+
+        if current_price < lower:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif current_price > upper:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"Keltner Channels strategy error: {str(e)}")
+
+def stochastic_oscillator_strategy(self, symbol, current_date, df=None, k_window=14, d_window=3,
+                                   overbought=80, oversold=20, **kwargs):
+    """Fixed Stochastic Oscillator strategy"""
+    try:
+        if df is None or len(df) < k_window + d_window + 1:
+            return
+
+        highs = df['High'].values.flatten()
+        lows = df['Low'].values.flatten()
+        closes = df['Close'].values.flatten()
+
+        # Calculate %K
+        k_values = []
+        for i in range(len(closes) - k_window + 1):
+            window_low = lows[i:i + k_window].min()
+            window_high = highs[i:i + k_window].max()
+            close = closes[i + k_window - 1]
+            k = 100 * ((close - window_low) / (window_high - window_low)) if (window_high - window_low) != 0 else 50
+            k_values.append(k)
+
+        current_k = float(k_values[-1])
+        current_d = float(pd.Series(k_values).rolling(window=d_window).mean().values[-1])
+        current_price = float(closes[-1])
+
+        if current_k < oversold and current_d < oversold:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+        elif current_k > overbought and current_d > overbought:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+    except Exception as e:
+        print(f"Stochastic strategy error: {str(e)}")
+
+def parabolic_sar_strategy(self, symbol, current_date, df=None, acceleration=0.02, maximum=0.2, **kwargs):
+    """Fixed Parabolic SAR strategy"""
+    try:
+        if df is None or len(df) < 2:
+            return
+
+        high = df['High'].values.flatten()
+        low = df['Low'].values.flatten()
+        close = df['Close'].values.flatten()
+
+        sar = np.zeros(len(close))
+        ep = np.zeros(len(close))
+        af = acceleration
+
+        sar[0] = high[0] if close[0] < high[0] else low[0]
+        ep[0] = high[0] if close[0] > high[0] else low[0]
+        trend = 1 if close[0] > high[0] else -1
+
+        for i in range(1, len(close)):
+            sar[i] = sar[i - 1] + af * (ep[i - 1] - sar[i - 1])
+
+            if trend == 1:
+                if low[i] < sar[i]:
+                    trend = -1
+                    sar[i] = max(high[i - 1], high[i])
+                    ep[i] = low[i]
+                    af = acceleration
+                else:
+                    ep[i] = max(ep[i - 1], high[i])
+                    if high[i] > ep[i - 1]:
+                        af = min(af + acceleration, maximum)
+            else:
+                if high[i] > sar[i]:
+                    trend = 1
+                    sar[i] = min(low[i - 1], low[i])
+                    ep[i] = high[i]
+                    af = acceleration
+                else:
+                    ep[i] = min(ep[i - 1], low[i])
+                    if low[i] < ep[i - 1]:
+                        af = min(af + acceleration, maximum)
+
+        current_sar = sar[-1]
+        current_price = float(close[-1])
+        prev_sar = sar[-2]
+        prev_price = float(close[-2])
+
+        if prev_price > prev_sar and current_price < current_sar:
+            symbol_with_ns = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            if symbol_with_ns in self.portfolio['holdings']:
+                self.add_historical_transaction(
+                    symbol,
+                    self.portfolio['holdings'][symbol_with_ns]['quantity'],
+                    "SELL",
+                    f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                    price=current_price
+                )
+        elif prev_price < prev_sar and current_price > current_sar:
+            quantity = max(1, int(10000 // current_price))
+            self.add_historical_transaction(
+                symbol, quantity, "BUY",
+                f"{current_date.strftime('%Y-%m-%d')} 09:15:00",
+                price=current_price
+            )
+    except Exception as e:
+        print(f"Parabolic SAR strategy error: {str(e)}")
     #################################################
 
     def run_backtest(self, strategy, symbol, start_date, end_date, **strategy_params):
@@ -1223,13 +1179,8 @@ class Simulation:
                     # Get the slice of data up to and including current date
                     df_slice = df.iloc[:idx + 1].copy()
 
-                                    # Get the actual price for this day
-                                    # Fix: Ensure we get a scalar value, not a Series
-                    close_value = df_slice.iloc[-1]['Close']
-                    if hasattr(close_value, 'iloc'):  # If it's still a Series/DataFrame
-                        current_price = float(close_value.iloc[0])
-                    else:
-                        current_price = float(close_value)
+                    close_values = df_slice.iloc[-1]['Close'].values.flatten()
+                    current_price = float(close_values[0]) if len(close_values) > 0 else 0.0
                     self.portfolio['price_history'][current_date.strftime('%Y-%m-%d')] = current_price
 
                     # Run strategy with the data slice
