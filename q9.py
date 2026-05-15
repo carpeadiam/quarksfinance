@@ -1223,8 +1223,13 @@ class Simulation:
                     # Get the slice of data up to and including current date
                     df_slice = df.iloc[:idx + 1].copy()
 
-                    # Get the actual price for this day
-                    current_price = float(df_slice.iloc[-1]['Close'])
+                                    # Get the actual price for this day
+                                    # Fix: Ensure we get a scalar value, not a Series
+                    close_value = df_slice.iloc[-1]['Close']
+                    if hasattr(close_value, 'iloc'):  # If it's still a Series/DataFrame
+                        current_price = float(close_value.iloc[0])
+                    else:
+                        current_price = float(close_value)
                     self.portfolio['price_history'][current_date.strftime('%Y-%m-%d')] = current_price
 
                     # Run strategy with the data slice
